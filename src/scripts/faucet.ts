@@ -1,8 +1,9 @@
 import Puppet from "../puppet"
-import {sayFaucetLog} from "../utils/promots"
-import {readFile} from "fs/promises"
+import { sayFaucetLog } from "../utils/promots"
+import { readFile } from "fs/promises"
+import * as fs from 'fs';
 import PuppetOptions from "../utils/PuppetOptions";
-
+import createWallet from "../cosmos/createAccounts";
 interface FaucetOptions {
     token: string,
     account: string,
@@ -11,9 +12,9 @@ interface FaucetOptions {
 
 export const runFaucet = async (project: string, options: FaucetOptions) => {
     sayFaucetLog()
-    //if (!options.token) throw new Error("Discord token not set!")
-    //if (!options.account) throw new Error("Faucet target address not set!")
     const str = await readFile("./faucets.json", "utf-8")
+    const dc_tokens = await readFile('./data/dc_tokens', 'utf-8')
+    const dc_token_array = dc_tokens.split('\n');
     const faucets = JSON.parse(str) as Record<string, {
         name: string,
         serverId: string,
@@ -22,11 +23,8 @@ export const runFaucet = async (project: string, options: FaucetOptions) => {
         cycle: number,
         arg1: string,
         args: string[],
-        tokenMapArrays: string[],
         execInterval: number,
         roundIntervalHours: number
-        tokens: string[],
-        address: string[]
     }>
     const faucetInfo = faucets[project]
     if (!faucetInfo) {
@@ -34,35 +32,51 @@ export const runFaucet = async (project: string, options: FaucetOptions) => {
     }
     const {
         name, serverId, channelId, type,
-        cycle, arg1, args, tokenMapArrays, execInterval
+        cycle, arg1, args, execInterval
         , roundIntervalHours
-        , tokens, address
     } = faucetInfo
 
     function sleep(ms: number) {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    // const {token, account, headless} = options
-    // const puppet = new Puppet(PuppetOptions(token, headless))
-    // await puppet.start()
-    // await puppet.goToChannel(serverId, channelId)
     if (type === 'msg') {
-        // puppet.sendMessage(arg1 + ' ' + account)
-        // setInterval(() => {
-        //     puppet.sendMessage(arg1 + ' ' + account)
-        // }, cycle * 1000)
-
         // 支持bbl
         if (name === "bbl") {
             async function runCommands() {
-                for (let tokenStr of tokenMapArrays) {
+                const bbl_mnemonic = await readFile('./data/bbl_mnemonic', 'utf-8')
+                let bbl_array = bbl_mnemonic.split("\n")
+                if(bbl_array.length==1){
+                    bbl_array = []
+                }
+                console.log("bbl_array",bbl_array.length);
+                
+                for (let i = 0; i < dc_token_array.length; i++) {
                     try {
-                        let tokenArr = tokenStr.split("=");
-                        let tmpToken = tokenArr[0]
-                        let bblAddress = tokenArr[1]
+                        let tmpToken = dc_token_array[i]
+                        let bblAddress = ""
+                        if (bbl_array.length <= i * 2) {
+                            //create new bbl account
+                            const wallet = await createWallet("bbn")
+                            const mnemonic = wallet.mnemonic
+                            const address = wallet.address
 
-                        console.log(`[use token]: ${tmpToken} `, new Date())
+                            // 使用fs.appendFile追加内容到文件末尾
+                            fs.appendFile("./data/bbl_mnemonic", "\n"+mnemonic+"\n"+address, (err) => {
+                                if (err) {
+                                    // 在这里处理错误
+                                    console.error('Error appending data to file:', err);
+                                } else {
+                                    console.log('Data successfully appended to file');
+                                }
+                            });
+                            console.log("createWallet ", address);
+                            bblAddress = address
+                        } else {
+                            bblAddress = bbl_array[i * 2+1]
+                        }
+
+                        console.log(`[use token]: ${tmpToken}, [address]:${bblAddress} `, new Date())
                         const puppet = new Puppet(PuppetOptions(tmpToken, true))
                         await puppet.start()
                         await puppet.goToChannel(serverId, channelId)
@@ -84,13 +98,10 @@ export const runFaucet = async (project: string, options: FaucetOptions) => {
         }
 
         if (name === "bbl_sbtc") {
-            for (let i = 0; i < tokens.length; i++) {
+            for (let i = 0; i < dc_token_array.length; i++) {
                 try {
-                    if (i >= address.length) {
-                        continue;
-                    }
-                    let token = tokens[i]
-                    let addr = address[i]
+                    let token = dc_token_array[i]
+                    let addr = ""
                     console.log(`[use token]: ${token} `, new Date())
                     const puppet = new Puppet(PuppetOptions(token, true))
                     await puppet.start()
